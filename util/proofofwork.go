@@ -16,7 +16,6 @@ func sha1Hash(data string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-// IsHashCorrect - checks that hash has leading <zerosCount> zeros
 func IsHashCorrect(hash string, zerosCount int) bool {
 	if zerosCount > len(hash) {
 		return false

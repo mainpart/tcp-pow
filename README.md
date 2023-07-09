@@ -1,7 +1,5 @@
 # Тестовое задание - TCP сервер с цитатами
 
-[![Actions Status](https://github.com/mainpart/tcp-pow/workflows/main/badge.svg)](https://github.com/mainpart/tcp-pow/actions)
-
 ## 1. Запуск в докере
 `docker-compose up -d`
 
@@ -10,6 +8,8 @@
 `go run server.go`
 
 `go run client.go`
+
+Вся конфигурация хранится в `config.yaml` файле.
 
 ## 3. Описание задания (из telegram)
 Design and implement “Word of Wisdom” tcp server. 
@@ -22,10 +22,7 @@ Docker file should be provided both for the server and for the client that solve
 
 ### 4 Описание результата
 
-Результат представляет собой 2 приложения - один сервер, другой клиент. Протокол общения выбран TCP, первой строкой идет тип сообщения, далее payload. В качестве алгоритма выбран [HashCash](https://en.wikipedia.org/wiki/Hashcash) как наиболее поддающийся конфигурации.
-Цитаты "подтягиваются" с online api 
-
-
-+ [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree)
-+ [Hashcash](https://en.wikipedia.org/wiki/Hashcash)
-+ [Guided tour puzzle](https://en.wikipedia.org/wiki/Guided_tour_puzzle_protocol)
+Результат представляет собой 2 приложения - один сервер, другой клиент. 
+Протокол общения выбран TCP, первой строкой идет тип сообщения, далее payload. 
+В качестве алгоритма выбран [HashCash](https://en.wikipedia.org/wiki/Hashcash) как наиболее поддающийся конфигурации сложности, а так же имеющий наибольшую поддержку среди готового кода на github.
+Цитаты "подтягиваются" с online api [https://dummyjson.com/quotes/random](https://dummyjson.com/quotes/random)

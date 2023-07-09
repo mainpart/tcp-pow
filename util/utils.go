@@ -27,13 +27,16 @@ func LoadConfig(path string) (*Config, error) {
 	return &config, err
 }
 
-// sendMsg - send protocol message to connection
+// SendMsg - Используется как на сервере, так и на клиенте. Отправляет в интерфейс сообщение
 func SendMsg(msg Message, conn io.Writer) error {
 	msgStr := fmt.Sprintf("%s\n", msg.Stringify())
 	_, err := conn.Write([]byte(msgStr))
 	return err
 }
 
+// GetRandSalt - генерирует строчку из заданный символов (в base64) - используется для того чтобы
+// проверить путем кэширования соли, что ранее такое задание выдавалось.
+// Позволяет отсеять попытки многократно получить ресурс
 func GetRandSalt(length int) (string, error) {
 	buf := make([]byte, length)
 	_, err := rand.Read(buf)
