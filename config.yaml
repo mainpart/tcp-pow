@@ -1,0 +1,8 @@
+server_host: localhost
+server_port: 3333
+cache_host: localhost
+cache_port : 6379
+hashcash_zeros_count : 3
+hashcash_duration : 5m
+hashcash_max_iterations: 1000000
+salt_len: 10
