@@ -3,10 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
-	"strings"
-
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -19,14 +16,12 @@ import (
 func main() {
 	fmt.Println("start server")
 
-	// loading config from file and env
 	configInst, err := util.LoadConfig("config.yaml")
 	if err != nil {
 		fmt.Println("error load config:", err)
 		return
 	}
 
-	// init context to pass config down
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, "config", configInst)
 
@@ -37,23 +32,13 @@ func main() {
 	}
 	ctx = context.WithValue(ctx, "cache", cacheInst)
 
-	// seed random generator to randomize order of quotes
 	rand.Seed(time.Now().UnixNano())
-
-	// run server
 	serverAddress := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
+
 	err = runServer(ctx, serverAddress)
 	if err != nil {
 		fmt.Println("server error:", err)
 	}
-}
-
-var ErrQuit = errors.New("client requests to close connection")
-
-type Cache interface {
-	Add(string, time.Duration) error
-	Get(string) (bool, error)
-	Delete(string)
 }
 
 func runServer(ctx context.Context, address string) error {
@@ -63,7 +48,6 @@ func runServer(ctx context.Context, address string) error {
 	}
 
 	defer listener.Close()
-	fmt.Println("listening", listener.Addr())
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -73,18 +57,22 @@ func runServer(ctx context.Context, address string) error {
 	}
 }
 
+// обработка ответа сервера
 func handleConnectionServer(ctx context.Context, conn net.Conn) {
 	fmt.Println("new client:", conn.RemoteAddr())
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
 
-	req, err := reader.ReadString('\n')
+	buf := make([]byte, 10000)
+	len, err := reader.Read(buf)
 	if err != nil {
-		fmt.Println("err read connection:", err)
+		fmt.Printf("Error reading: %#v\n", err)
 		return
 	}
-	msg, err := ProcessRequest(ctx, req, strings.Split(conn.RemoteAddr().String(), ":")[0])
+
+	req := string(buf[:len])
+	msg, err := ProcessRequest(ctx, req, conn)
 	if err != nil {
 		fmt.Println("err process request:", err)
 		return
@@ -99,30 +87,28 @@ func handleConnectionServer(ctx context.Context, conn net.Conn) {
 
 }
 
-func ProcessRequest(ctx context.Context, msgStr string, resource string) (*util.Message, error) {
+// смотрим на тип запроса. Типа два - запрос задачи для ресурса и запрос ресурса
+func ProcessRequest(ctx context.Context, msgStr string, conn net.Conn) (*util.Message, error) {
 	msg, err := util.ParseMessage(msgStr)
+	resource := msg.Resource
+	conf := ctx.Value("config").(*util.Config)
+	cache := ctx.Value("cache").(util.Cache)
+
 	if err != nil {
 		return nil, err
 	}
 	switch msg.Header {
 
 	case util.RequestChallenge:
-		fmt.Printf("client %s requests challenge\n", resource)
-		// create new challenge for client
-		conf := ctx.Value("config").(*util.Config)
 
-		cache := ctx.Value("cache").(Cache)
 		date := time.Now()
-
-		// add new created rand value to cache to check it later on RequestResource stage
-		// with duration in seconds
 		randValue, err := util.GetRandSalt(conf.SaltLen)
 		if err != nil {
-			return nil, fmt.Errorf("err getting salt: %w", err)
+			return nil, err
 		}
-		err = cache.Add(randValue, conf.HashcashDuration)
+		err = cache.Add(randValue+resource, conf.HashcashDuration)
 		if err != nil {
-			return nil, fmt.Errorf("err add rand to cache: %w", err)
+			return nil, err
 		}
 
 		hashcash := util.Hashcash{
@@ -135,59 +121,49 @@ func ProcessRequest(ctx context.Context, msgStr string, resource string) (*util.
 		}
 		hashcashMarshaled, err := json.Marshal(hashcash)
 		if err != nil {
-			return nil, fmt.Errorf("err marshal hashcash: %v", err)
+			return nil, err
 		}
 		msg := util.Message{
-			Header:  util.ResponseChallenge,
-			Payload: string(hashcashMarshaled),
+			Header:   util.ResponseChallenge,
+			Resource: resource,
+			Payload:  string(hashcashMarshaled),
 		}
 		return &msg, nil
+
 	case util.RequestResource:
-		fmt.Printf("client %s requests resource with payload %s\n", resource, msg.Payload)
-		// parse client's solution
+		fmt.Printf("client %s asks resource %s, payload %s\n", conn.RemoteAddr(), resource, msg.Payload)
 		var hashcash util.Hashcash
 		err := json.Unmarshal([]byte(msg.Payload), &hashcash)
 		if err != nil {
-			return nil, fmt.Errorf("err unmarshal hashcash: %w", err)
+			return nil, err
 		}
-		// validate hashcash params
-		if hashcash.Resource != resource {
-			return nil, fmt.Errorf("invalid hashcash resource")
-		}
-		conf := ctx.Value("config").(*util.Config)
-		cache := ctx.Value("cache").(Cache)
-
-		// if rand exists in cache, it means, that hashcash is valid and really challenged by this server in past
-		exists, err := cache.Get(hashcash.Rand)
+		// смотрим была ли такая задача выдана на ресурс ранее
+		// защита от DDOS
+		exists, err := cache.Get(hashcash.Rand + hashcash.Resource)
 		if err != nil {
-			return nil, fmt.Errorf("err get rand from cache: %w", err)
+			return nil, err
 		}
 		if !exists {
-			return nil, fmt.Errorf("challenge expired or not sent")
+			return nil, fmt.Errorf("challenge not exists")
 		}
 
-		// sent solution should not be outdated
+		// смотрим чтобы не протух срок запроса ресурса
 		if time.Now().Unix()-hashcash.Date > conf.HashcashDuration.Milliseconds()/100 {
-			return nil, fmt.Errorf("challenge expired")
+			return nil, fmt.Errorf("challenge not exists")
 		}
-		//to prevent indefinite computing on server if client sent hashcash with 0 counter
-		maxIter := hashcash.Counter
-		if maxIter == 0 {
-			maxIter = 1
-		}
-		_, err = hashcash.ComputeHashcash(maxIter)
+
+		_, err = hashcash.ComputeHashcash(hashcash.Counter)
 		if err != nil {
-			return nil, fmt.Errorf("invalid hashcash")
+			return nil, fmt.Errorf("invalid hashcash sum")
 		}
-		//get random quote
-		fmt.Printf("client %s succesfully computed hashcash %s\n", resource, msg.Payload)
+		// если все окей - посылаем цитату
 		msg := util.Message{
 			Header:  util.ResponseResource,
 			Payload: util.GetQuote(),
 		}
-		// delete rand from cache to prevent duplicated request with same hashcash value
-		cache.Delete(hashcash.Rand)
+		cache.Delete(hashcash.Rand + hashcash.Resource)
 		return &msg, nil
+
 	default:
 		return nil, fmt.Errorf("unknown header")
 	}

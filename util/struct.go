@@ -18,15 +18,17 @@ type Config struct {
 }
 
 const (
-	RequestChallenge  = iota // from client to server - request new challenge from server
-	ResponseChallenge        // from server to client - message with challenge for client
-	RequestResource          // from client to server - message with solved challenge
-	ResponseResource         // from server to client - message with useful info is solution is correct, or with error if not
+	RequestChallenge  = iota // запрос задачи
+	ResponseChallenge        // отгрузка задачи
+	RequestResource          // решение задачи
+	ResponseResource         // результат
 )
 
+// Сообщение протокола состоит из заголовка с типом. Запрашиваемого ресурса. И содержимого запроса.
 type Message struct {
-	Header  int    //type of message
-	Payload string //payload, could be json, quote or be empty
+	Header   int
+	Resource string
+	Payload  string
 }
 
 // https://en.wikipedia.org/wiki/Hashcash
@@ -42,4 +44,10 @@ type Hashcash struct {
 type RedisCache struct {
 	ctx    context.Context
 	client *redis.Client
+}
+
+type Cache interface {
+	Add(string, time.Duration) error
+	Get(string) (bool, error)
+	Delete(string)
 }

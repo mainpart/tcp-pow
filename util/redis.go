@@ -7,16 +7,14 @@ import (
 	"time"
 )
 
-// InitRedisCache - create new instance of RedisCache
-// host and port - connection to Redis instance
 func InitRedisCache(ctx context.Context, host string, port int) (*RedisCache, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", host, port),
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Password: "",
+		DB:       0,
 	})
 
-	// check connection by setting test value
+	// базовая проверка
 	err := rdb.Set(ctx, "key", "value", 0).Err()
 
 	return &RedisCache{

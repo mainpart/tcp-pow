@@ -13,27 +13,23 @@ import (
 func main() {
 	fmt.Println("start client")
 
-	// loading config from file and env
 	configInst, err := util.LoadConfig("config.yaml")
 	if err != nil {
 		fmt.Println("error load config:", err)
 		return
 	}
 
-	// init context to pass config down
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, "config", configInst)
 
 	address := fmt.Sprintf("%s:%d", configInst.ServerHost, configInst.ServerPort)
 
-	// run client
 	err = runClient(ctx, address)
 	if err != nil {
 		fmt.Println("client error:", err)
 	}
 }
 
-// Run - main function, launches client to connect and work with server on address
 func runClient(ctx context.Context, address string) error {
 
 	// client will send new request every 5 seconds endlessly
@@ -47,33 +43,35 @@ func runClient(ctx context.Context, address string) error {
 	}
 }
 
-// handleConnectionClient - scenario for TCP-client
-// 1. request challenge from server
-// 2. compute hashcash to check Proof of Work
-// 3. send hashcash solution back to server
-// 4. get result quote from server
-// readerConn and writerConn divided to more convenient mock on testing
+// создаем два запроса - в одном из них запрашиваем pow задачу
+// во втором - даем ответ
 func handleConnectionClient(ctx context.Context, address string) (string, error) {
 
+	// соединились с хостом
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("connected to", address)
+	resource, err := util.GetRandSalt(10)
+	if err != nil {
+		return "", fmt.Errorf("err getting resource: %w", err)
+	}
 
-	// 1. requesting challenge
+	// запросили задачку
 	err = util.SendMsg(util.Message{
-		Header: util.RequestChallenge,
+		Header:   util.RequestChallenge,
+		Resource: resource,
 	}, conn)
 	if err != nil {
 		return "", fmt.Errorf("err send request: %w", err)
 	}
 
-	// reading and parsing response
 	msgStr, err := readConnMsg(conn)
 	if err != nil {
 		return "", fmt.Errorf("err read msg: %w", err)
 	}
+
+	// закрыли соединение
 	_ = conn.Close()
 	msg, err := util.ParseMessage(string(msgStr))
 	if err != nil {
@@ -87,35 +85,35 @@ func handleConnectionClient(ctx context.Context, address string) (string, error)
 	}
 	fmt.Println("got hashcash:", hashcash)
 
-	// 2. got challenge, compute hashcash
+	// посчитали задачку
 	conf := ctx.Value("config").(*util.Config)
 	hashcash, err = hashcash.ComputeHashcash(conf.HashcashMaxIterations)
 	if err != nil {
 		return "", fmt.Errorf("err compute hashcash: %w", err)
 	}
 	fmt.Println("hashcash computed:", hashcash)
-	// marshal solution to json
 	byteData, err := json.Marshal(hashcash)
 	if err != nil {
 		return "", fmt.Errorf("err marshal hashcash: %w", err)
 	}
 
+	// снова соединились с хостом
 	conn, err = net.Dial("tcp", address)
 	if err != nil {
 		return "", err
 	}
 
-	// 3. send challenge solution back to server
+	// отправили результат
 	err = util.SendMsg(util.Message{
-		Header:  util.RequestResource,
-		Payload: string(byteData),
+		Header:   util.RequestResource,
+		Resource: resource,
+		Payload:  string(byteData),
 	}, conn)
 	if err != nil {
 		return "", fmt.Errorf("err send request: %w", err)
 	}
-	fmt.Println("challenge sent to server")
 
-	// 4. get result quote from server
+	// прочитали ответ
 	msgStr, err = readConnMsg(conn)
 	if err != nil {
 		return "", fmt.Errorf("err read msg: %w", err)
@@ -127,7 +125,6 @@ func handleConnectionClient(ctx context.Context, address string) (string, error)
 	return msg.Payload, nil
 }
 
-// readConnMsg - read string message from connection
 func readConnMsg(connect net.Conn) ([]byte, error) {
 	buf := make([]byte, 0, 4096) // big buffer
 	tmp := make([]byte, 256)     // using small tmo buffer for demonstrating
