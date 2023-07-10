@@ -28,6 +28,8 @@ Docker file should be provided both for the server and for the client that solve
 
 ### Диаграмма последовательности
 
+![Planuml](plantuml.svg)
+
 ```plantuml
 participant client 
 participant server
